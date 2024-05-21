@@ -1,3 +1,6 @@
+# ColorfulCoktail
+Application React Native pour une application destiné à faire des mélanges de couleurs à l'aide d'un Arduino Uno et d'un ESP32-C3
+
 This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
 
 # Getting Started
