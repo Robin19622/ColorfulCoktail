@@ -37,36 +37,39 @@ class MyServerCallbacks : public BLEServerCallbacks {
 
 class RecipeCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
-      std::string value = pCharacteristic->getValue();
-      if (pCharacteristic == redCharacteristic) {
-        redValue = atoi(value.c_str());
-        Serial.print("Received Red Value: ");
-        Serial.println(redValue);
-      } else if (pCharacteristic == greenCharacteristic) {
-        greenValue = atoi(value.c_str());
-        Serial.print("Received Green Value: ");
-        Serial.println(greenValue);
-      } else if (pCharacteristic == blueCharacteristic) {
-        blueValue = atoi(value.c_str());
-        Serial.print("Received Blue Value: ");
-        Serial.println(blueValue);
-      }
+        std::string value = pCharacteristic->getValue();
+        bool updated = false;
+
+        if (pCharacteristic == redCharacteristic) {
+            redValue = atoi(value.c_str());
+            updated = true;
+        } else if (pCharacteristic == greenCharacteristic) {
+            greenValue = atoi(value.c_str());
+            updated = true;
+        } else if (pCharacteristic == blueCharacteristic) {
+            blueValue = atoi(value.c_str());
+            updated = true;
+        }
+
+        if (updated) {
+            // Send the RGB values to the Arduino Uno with markers
+            String rgbData = "<RGB>" + String(redValue) + "," + String(greenValue) + "," + String(blueValue) + "\n";
+            Serial.print(rgbData);
+            Serial.flush(); // Ensure the serial buffer is clear
+        }
     }
 };
 
-void sendTankStatus() {
-    int tank1Status = random(0, 2);
-    int tank2Status = random(0, 2);
-    int tank3Status = random(0, 2);
-    
+
+void sendTankStatus(int tank1Status, int tank2Status, int tank3Status) {
     char buffer[10];
     sprintf(buffer, "%02X%02X%02X", tank1Status, tank2Status, tank3Status);
     tankStatusCharacteristic->setValue(buffer);
     tankStatusCharacteristic->notify();
 
     // Print the concatenated message being sent
-    Serial.print("Sending Tank Statuses: ");
-    Serial.println(buffer);
+    //Serial.print("Sending Tank Statuses: ");
+    //Serial.println(buffer);
 }
 
 void setup() {
@@ -104,10 +107,38 @@ void setup() {
 
 void loop() {
     if (deviceConnected) {
-        sendTankStatus();
+        // Handle receiving tank statuses from Arduino Uno
+        if (Serial.available()) {
+            String data = Serial.readStringUntil('\n'); // Read until newline
+            // Serial.print("Received data: ");
+            // Serial.println(data);
+
+            if (data.startsWith("<TANK>")) {
+                data = data.substring(6); // Remove the marker
+                int commaIndex1 = data.indexOf(',');
+                int commaIndex2 = data.indexOf(',', commaIndex1 + 1);
+                if (commaIndex1 > 0 && commaIndex2 > 0) {
+                    int tank1Status = data.substring(0, commaIndex1).toInt();
+                    int tank2Status = data.substring(commaIndex1 + 1, commaIndex2).toInt();
+                    int tank3Status = data.substring(commaIndex2 + 1).toInt();
+
+                    // Print the received tank statuses
+                    // Serial.print("Tank1Status: ");
+                    // Serial.print(tank1Status);
+                    // Serial.print(", Tank2Status: ");
+                    // Serial.print(tank2Status);
+                    // Serial.print(", Tank3Status: ");
+                    // Serial.println(tank3Status);
+
+                    // Call the function to send the tank statuses
+                    sendTankStatus(tank1Status, tank2Status, tank3Status);
+                } else {
+                    // Serial.println("Invalid TANK data format received");
+                }
+            }
+        }
     } else {
         Serial.println("Waiting for connection...");
+        delay(5000); // Check every 5 seconds
     }
-
-    delay(5000); // Update every 5 seconds
 }
