@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Button, StyleSheet, Platform, PermissionsAndroid, TextInput, FlatList, ActivityIndicator, Image, TouchableOpacity } from 'react-native';
+import { View, Text, Button, PermissionsAndroid, Platform, StyleSheet, FlatList, ActivityIndicator, Image, TouchableOpacity, TextInput } from 'react-native';
 import { BleManager, Device } from 'react-native-ble-plx';
 import base64 from 'react-native-base64';
 import tinycolor from 'tinycolor2';
 import Icon from 'react-native-vector-icons/FontAwesome';
 
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
+const TANK_STATUS_UUID = '1dcef519-43ec-4267-8d4a-3b02ca61765d';
 const RED_UUID = '8a7f1168-48af-4ef4-9bae-a8d15f08cefe';
 const GREEN_UUID = '77b9c657-94d5-4f72-bfd4-53758dffa508';
 const BLUE_UUID = '0dcef519-43ec-4267-8d4a-3b02ca61765d';
@@ -25,6 +26,9 @@ export default function App() {
   const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [noDevicesFound, setNoDevicesFound] = useState(false);
+  const [tank1Status, setTank1Status] = useState<number | null>(null);
+  const [tank2Status, setTank2Status] = useState<number | null>(null);
+  const [tank3Status, setTank3Status] = useState<number | null>(null);
   const [showAddRecipe, setShowAddRecipe] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([
     { id: 1, name: 'Bleu Ciel', red: 135, green: 206, blue: 235 },
@@ -43,8 +47,9 @@ export default function App() {
   }, []);
 
   async function scanAndConnect() {
-    if (isScanning) return; // Prevent multiple scans at the same time
+    if (isScanning) return;
 
+    console.log('Starting scan...');
     setIsScanning(true);
     setNoDevicesFound(false);
     setIsConnected(false);
@@ -66,6 +71,8 @@ export default function App() {
         return;
       }
 
+      console.log('Scanning...');
+
       if (device && device.name === 'ColorControl') {
         console.log('Appareil trouvé :', device.name);
         manager.stopDeviceScan();
@@ -76,6 +83,10 @@ export default function App() {
             setIsConnected(true);
             setConnectedDevice(device);
             return device.discoverAllServicesAndCharacteristics();
+          })
+          .then((device) => {
+            console.log('Services et caractéristiques découverts');
+            setupNotifications(device);
           })
           .catch(err => {
             console.log('Erreur de connexion ou de découverte :', err);
@@ -95,25 +106,56 @@ export default function App() {
     }, 10000);
   }
 
+  function setupNotifications(device: Device) {
+    monitorCharacteristic(device, SERVICE_UUID, TANK_STATUS_UUID, 'Tank Status', (value) => {
+      const tank1 = parseInt(value.substring(0, 2), 16);
+      const tank2 = parseInt(value.substring(2, 4), 16);
+      const tank3 = parseInt(value.substring(4, 6), 16);
+
+      console.log(`Tank 1 Status: ${tank1}, Tank 2 Status: ${tank2}, Tank 3 Status: ${tank3}`);
+
+      setTank1Status(tank1);
+      setTank2Status(tank2);
+      setTank3Status(tank3);
+    });
+  }
+
+  function monitorCharacteristic(
+    device: Device,
+    serviceUUID: string,
+    characteristicUUID: string,
+    characteristicName: string,
+    setState: (value: string) => void
+  ) {
+    console.log(`Monitoring characteristic ${characteristicName} (${characteristicUUID})...`);
+    device.monitorCharacteristicForService(serviceUUID, characteristicUUID, (error, characteristic) => {
+      if (error) {
+        console.log(`Erreur de lecture de ${characteristicName} :`, error);
+        return;
+      }
+      if (characteristic?.value) {
+        const decodedValue = base64.decode(characteristic.value);
+        console.log(`${characteristicName} Value (raw):`, characteristic.value);
+        console.log(`${characteristicName} Value (decoded):`, decodedValue);
+        setState(decodedValue);
+      } else {
+        console.log(`${characteristicName} Value is empty or invalid.`);
+      }
+    });
+  }
+
   async function sendData() {
     if (connectedDevice && isConnected) {
       try {
-        await connectedDevice.discoverAllServicesAndCharacteristics();
-        const services = await connectedDevice.services();
-        const service = services.find(service => service.uuid === SERVICE_UUID);
-        if (service) {
-          const redData = base64.encode(String(selectedRecipe.red));
-          const greenData = base64.encode(String(selectedRecipe.green));
-          const blueData = base64.encode(String(selectedRecipe.blue));
+        const redData = base64.encode(String(selectedRecipe.red));
+        const greenData = base64.encode(String(selectedRecipe.green));
+        const blueData = base64.encode(String(selectedRecipe.blue));
 
-          await connectedDevice.writeCharacteristicWithResponseForService(service.uuid, RED_UUID, redData);
-          await connectedDevice.writeCharacteristicWithResponseForService(service.uuid, GREEN_UUID, greenData);
-          await connectedDevice.writeCharacteristicWithResponseForService(service.uuid, BLUE_UUID, blueData);
+        await connectedDevice.writeCharacteristicWithResponseForService(SERVICE_UUID, RED_UUID, redData);
+        await connectedDevice.writeCharacteristicWithResponseForService(SERVICE_UUID, GREEN_UUID, greenData);
+        await connectedDevice.writeCharacteristicWithResponseForService(SERVICE_UUID, BLUE_UUID, blueData);
 
-          console.log(`Données envoyées pour ${selectedRecipe.name} : Rouge=${selectedRecipe.red}, Vert=${selectedRecipe.green}, Bleu=${selectedRecipe.blue}`);
-        } else {
-          console.log('Service non trouvé.');
-        }
+        console.log(`Données envoyées pour ${selectedRecipe.name} : Rouge=${selectedRecipe.red}, Vert=${selectedRecipe.green}, Bleu=${selectedRecipe.blue}`);
       } catch (error) {
         console.log('Erreur d\'envoi des données :', error);
       }
@@ -142,6 +184,12 @@ export default function App() {
 
   return (
     <View style={styles.container}>
+      <View style={styles.tankStatusContainer}>
+        <Text style={styles.tankStatusTitle}>Statut des réservoirs :</Text>
+        <Text style={styles.tankStatus}>Réservoir 1 : {tank1Status !== null ? (tank1Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
+        <Text style={styles.tankStatus}>Réservoir 2 : {tank2Status !== null ? (tank2Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
+        <Text style={styles.tankStatus}>Réservoir 3 : {tank3Status !== null ? (tank3Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
+      </View>
       {!isConnected && (
         <View style={styles.centeredContainer}>
           <Image source={require('./assets/logo.png')} style={styles.logo} />
@@ -216,46 +264,50 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#fff',
+    padding: 20,
   },
-  centeredContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logo: {
-    width: 150,
-    height: 150,
+  tankStatusContainer: {
     marginBottom: 20,
-    borderRadius: 75, // Make the logo round
-    borderWidth: 2,
-    borderColor: '#ff6347', // Match the border color to the title color
   },
-  title: {
-    fontSize: 28, // Increase the font size
-    fontWeight: 'bold',
-    marginBottom: 20,
-    color: '#ff6347',
-    textShadowColor: 'rgba(0, 0, 0, 0.25)', // Add a subtle shadow
-    textShadowOffset: { width: 2, height: 2 },
-    textShadowRadius: 3,
-  },
-  connectedContainer: {
-    width: '100%',
-    padding: 10,
-  },
-  connectedDevice: {
+  tankStatusTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#32CD32',
+  },
+  tankStatus: {
+    fontSize: 18,
+    marginVertical: 5,
+  },
+  centeredContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  connectedContainer: {
+    flex: 1,
+  },
+  logo: {
+    width: 100,
+    height: 100,
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  noDeviceText: {
+    marginTop: 20,
+    fontSize: 16,
+    color: 'red',
+  },
+  connectedDevice: {
+    fontSize: 18,
     marginBottom: 10,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginTop: 20,
     marginBottom: 10,
   },
   recipeItem: {
@@ -263,58 +315,46 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
-    backgroundColor: '#fff',
+    backgroundColor: '#f9f9f9',
     marginBottom: 5,
   },
   selectedRecipe: {
-    backgroundColor: '#e0f7fa',
+    backgroundColor: '#d0eaff',
   },
   recipeName: {
-    fontSize: 16,
+    fontSize: 18,
   },
   addButton: {
-    backgroundColor: '#ff6347',
+    backgroundColor: '#28a745',
     padding: 10,
-    borderRadius: 5,
-    marginTop: 20,
     alignItems: 'center',
+    borderRadius: 5,
   },
   addButtonText: {
     color: '#fff',
-    fontWeight: 'bold',
+    fontSize: 18,
   },
   addRecipeContainer: {
-    padding: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#ccc',
-    marginTop: 10,
-    backgroundColor: '#fff',
+    padding: 20,
+    backgroundColor: '#f9f9f9',
     borderRadius: 5,
+    marginVertical: 10,
   },
   input: {
-    height: 40,
-    borderColor: 'gray',
     borderWidth: 1,
+    borderColor: '#ccc',
+    padding: 10,
     marginBottom: 10,
-    paddingLeft: 8,
     borderRadius: 5,
   },
   colorPreview: {
     width: '100%',
-    height: 100,
-    marginTop: 10,
+    height: 50,
     borderRadius: 5,
-  },
-  noDeviceText: {
-    marginTop: 20,
-    color: 'red',
-    fontWeight: 'bold',
+    marginVertical: 10,
   },
   selectedRecipeText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 10,
+    fontSize: 18,
+    marginBottom: 10,
   },
 });
