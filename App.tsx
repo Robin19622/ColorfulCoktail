@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, Button, FlatList, ActivityIndicator, Image, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { styles } from './styles/styles';
 import tinycolor from 'tinycolor2';
 import { useBLE } from './hooks/useBLE';
+import SyncStorage from 'sync-storage';
 
 type Recipe = {
   id: number;
@@ -25,31 +26,71 @@ export default function App() {
     sendData,
   } = useBLE();
 
+  const [isStorageInitialized, setIsStorageInitialized] = useState(false);
   const [showAddRecipe, setShowAddRecipe] = useState(false);
-  const [recipes, setRecipes] = useState<Recipe[]>([
-    { id: 1, name: 'Bleu Ciel', red: 135, green: 206, blue: 235 },
-    { id: 2, name: 'Vert Printemps', red: 0, green: 255, blue: 127 }
-  ]);
-  const [selectedRecipe, setSelectedRecipe] = useState<Recipe>(recipes[0]);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [newRecipe, setNewRecipe] = useState({ name: '', red: '', green: '', blue: '' });
+
+  useEffect(() => {
+    // Initialize SyncStorage and load recipes
+    const initStorage = async () => {
+      await SyncStorage.init();
+      const storedRecipes = SyncStorage.get('recipes');
+      console.log('Loaded recipes from storage:', storedRecipes);
+      if (storedRecipes) {
+        const parsedRecipes = JSON.parse(storedRecipes);
+        setRecipes(parsedRecipes);
+        if (parsedRecipes.length > 0) {
+          setSelectedRecipe(parsedRecipes[0]);
+        }
+      }
+      setIsStorageInitialized(true);
+    };
+
+    initStorage();
+  }, []);
+
+  useEffect(() => {
+    if (recipes.length > 0 && !selectedRecipe) {
+      setSelectedRecipe(recipes[0]);
+    }
+  }, [recipes]);
 
   const addRecipe = () => {
     if (newRecipe.name && newRecipe.red && newRecipe.green && newRecipe.blue) {
       const newId = recipes.length ? recipes[recipes.length - 1].id + 1 : 1;
       const recipe: Recipe = { id: newId, name: newRecipe.name, red: parseInt(newRecipe.red), green: parseInt(newRecipe.green), blue: parseInt(newRecipe.blue) };
-      setRecipes([...recipes, recipe]);
+      const updatedRecipes = [...recipes, recipe];
+      setRecipes(updatedRecipes);
+      SyncStorage.set('recipes', JSON.stringify(updatedRecipes));
+      console.log('Saved recipes to storage:', JSON.stringify(updatedRecipes));
       setNewRecipe({ name: '', red: '', green: '', blue: '' });
       setShowAddRecipe(false);
     }
   };
 
   const removeRecipe = (id: number) => {
-    setRecipes(recipes.filter(recipe => recipe.id !== id));
+    const updatedRecipes = recipes.filter(recipe => recipe.id !== id);
+    setRecipes(updatedRecipes);
+    SyncStorage.set('recipes', JSON.stringify(updatedRecipes));
+    console.log('Updated recipes in storage after removal:', JSON.stringify(updatedRecipes));
+    if (selectedRecipe && selectedRecipe.id === id) {
+      setSelectedRecipe(updatedRecipes.length > 0 ? updatedRecipes[0] : null);
+    }
   };
 
   const calculateColor = (red: number, green: number, blue: number) => {
     return tinycolor({ r: red, g: green, b: blue }).toRgbString();
   };
+
+  if (!isStorageInitialized) {
+    return (
+      <View style={styles.centeredContainer}>
+        <ActivityIndicator size="large" color="#0000ff" />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : "height"}>
@@ -79,7 +120,7 @@ export default function App() {
           <FlatList
             data={recipes}
             renderItem={({ item }) => (
-              <View style={[styles.recipeItem, selectedRecipe.id === item.id && styles.selectedRecipe]}>
+              <View style={[styles.recipeItem, selectedRecipe?.id === item.id && styles.selectedRecipe]}>
                 <Text onPress={() => setSelectedRecipe(item)} style={styles.recipeName}>{item.name}</Text>
                 <TouchableOpacity onPress={() => removeRecipe(item.id)}>
                   <Text style={styles.removeText}>Supprimer</Text>
@@ -91,10 +132,14 @@ export default function App() {
           <TouchableOpacity onPress={() => setShowAddRecipe(true)} style={styles.addButton}>
             <Text style={styles.addButtonText}>Ajouter une recette</Text>
           </TouchableOpacity>
-          <Text style={styles.sectionTitle}>Recette sélectionnée</Text>
-          <Text style={styles.selectedRecipeText}>{selectedRecipe.name}</Text>
-          <View style={[styles.colorPreview, { backgroundColor: calculateColor(selectedRecipe.red, selectedRecipe.green, selectedRecipe.blue) }]} />
-          <Button title="Envoyer les données" onPress={() => sendData(selectedRecipe)} />
+          {selectedRecipe && (
+            <>
+              <Text style={styles.sectionTitle}>Recette sélectionnée</Text>
+              <Text style={styles.selectedRecipeText}>{selectedRecipe.name}</Text>
+              <View style={[styles.colorPreview, { backgroundColor: calculateColor(selectedRecipe.red, selectedRecipe.green, selectedRecipe.blue) }]} />
+              <Button title="Envoyer les données" onPress={() => sendData(selectedRecipe)} />
+            </>
+          )}
         </View>
       )}
       {showAddRecipe && (
