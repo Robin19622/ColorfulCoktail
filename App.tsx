@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Button, PermissionsAndroid, Platform, StyleSheet, FlatList, ActivityIndicator, Image, TouchableOpacity, TextInput } from 'react-native';
 import { BleManager, Device } from 'react-native-ble-plx';
+import { styles } from './styles/styles';
 import base64 from 'react-native-base64';
 import tinycolor from 'tinycolor2';
-import Icon from 'react-native-vector-icons/FontAwesome';
 
 const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 const TANK_STATUS_UUID = '1dcef519-43ec-4267-8d4a-3b02ca61765d';
@@ -184,15 +184,15 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.tankStatusContainer}>
+      <View style={[styles.tankStatusContainer, !isConnected && styles.hidden]}>
         <Text style={styles.tankStatusTitle}>Statut des réservoirs :</Text>
-        <Text style={styles.tankStatus}>Réservoir 1 : {tank1Status !== null ? (tank1Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
-        <Text style={styles.tankStatus}>Réservoir 2 : {tank2Status !== null ? (tank2Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
-        <Text style={styles.tankStatus}>Réservoir 3 : {tank3Status !== null ? (tank3Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
+        <Text style={[styles.tankStatus, tank1Status ? styles.alertStatus : null]}>Réservoir 1 : {tank1Status !== null ? (tank1Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
+        <Text style={[styles.tankStatus, tank2Status ? styles.alertStatus : null]}>Réservoir 2 : {tank2Status !== null ? (tank2Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
+        <Text style={[styles.tankStatus, tank3Status ? styles.alertStatus : null]}>Réservoir 3 : {tank3Status !== null ? (tank3Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
       </View>
       {!isConnected && (
         <View style={styles.centeredContainer}>
-          <Image source={require('./assets/logo.png')} style={styles.logo} />
+          <Image source={require('./assets/logo.png')} style={styles.logoLoading} />
           <Text style={styles.title}>Colorful Cocktail</Text>
           <Button title="Connecter à l'appareil BLE" onPress={scanAndConnect} />
           {isScanning && <ActivityIndicator size="large" color="#0000ff" />}
@@ -209,7 +209,7 @@ export default function App() {
               <View style={[styles.recipeItem, selectedRecipe.id === item.id && styles.selectedRecipe]}>
                 <Text onPress={() => setSelectedRecipe(item)} style={styles.recipeName}>{item.name}</Text>
                 <TouchableOpacity onPress={() => removeRecipe(item.id)}>
-                  <Icon name="trash" size={20} color="red" />
+                  <Text style={styles.removeText}>Supprimer</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -260,101 +260,3 @@ export default function App() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    padding: 20,
-  },
-  tankStatusContainer: {
-    marginBottom: 20,
-  },
-  tankStatusTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  tankStatus: {
-    fontSize: 18,
-    marginVertical: 5,
-  },
-  centeredContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  connectedContainer: {
-    flex: 1,
-  },
-  logo: {
-    width: 100,
-    height: 100,
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-  },
-  noDeviceText: {
-    marginTop: 20,
-    fontSize: 16,
-    color: 'red',
-  },
-  connectedDevice: {
-    fontSize: 18,
-    marginBottom: 10,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  recipeItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 10,
-    backgroundColor: '#f9f9f9',
-    marginBottom: 5,
-  },
-  selectedRecipe: {
-    backgroundColor: '#d0eaff',
-  },
-  recipeName: {
-    fontSize: 18,
-  },
-  addButton: {
-    backgroundColor: '#28a745',
-    padding: 10,
-    alignItems: 'center',
-    borderRadius: 5,
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 18,
-  },
-  addRecipeContainer: {
-    padding: 20,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 5,
-    marginVertical: 10,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 10,
-    marginBottom: 10,
-    borderRadius: 5,
-  },
-  colorPreview: {
-    width: '100%',
-    height: 50,
-    borderRadius: 5,
-    marginVertical: 10,
-  },
-  selectedRecipeText: {
-    fontSize: 18,
-    marginBottom: 10,
-  },
-});
