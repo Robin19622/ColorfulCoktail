@@ -37,28 +37,44 @@ class MyServerCallbacks : public BLEServerCallbacks {
 
 class RecipeCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
+        static int redTemp = -1;
+        static int greenTemp = -1;
+        static int blueTemp = -1;
+        
         std::string value = pCharacteristic->getValue();
-        bool updated = false;
 
         if (pCharacteristic == redCharacteristic) {
-            redValue = atoi(value.c_str());
-            updated = true;
+            redTemp = atoi(value.c_str());
         } else if (pCharacteristic == greenCharacteristic) {
-            greenValue = atoi(value.c_str());
-            updated = true;
+            greenTemp = atoi(value.c_str());
         } else if (pCharacteristic == blueCharacteristic) {
-            blueValue = atoi(value.c_str());
-            updated = true;
+            blueTemp = atoi(value.c_str());
         }
 
-        if (updated) {
+        // Check if all values are updated
+        if (redTemp != -1 && greenTemp != -1 && blueTemp != -1) {
+            // All values are updated, set the actual values
+            redValue = redTemp;
+            greenValue = greenTemp;
+            blueValue = blueTemp;
+            
             // Send the RGB values to the Arduino Uno with markers
             String rgbData = "<RGB>" + String(redValue) + "," + String(greenValue) + "," + String(blueValue) + "\n";
             Serial.print(rgbData);
             Serial.flush(); // Ensure the serial buffer is clear
+            
+            // Add a short delay to ensure the Arduino processes the data
+            delay(50); // Adjust the delay as needed
+            
+            // Reset temp values to indicate they need updating again
+            redTemp = -1;
+            greenTemp = -1;
+            blueTemp = -1;
         }
     }
 };
+
+
 
 
 void sendTankStatus(int tank1Status, int tank2Status, int tank3Status) {
