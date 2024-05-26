@@ -1,17 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, Button, PermissionsAndroid, Platform, StyleSheet, FlatList, ActivityIndicator, Image, TouchableOpacity, TextInput } from 'react-native';
-import { BleManager, Device } from 'react-native-ble-plx';
+import React, { useState } from 'react';
+import { View, Text, Button, FlatList, ActivityIndicator, Image, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { styles } from './styles/styles';
-import base64 from 'react-native-base64';
 import tinycolor from 'tinycolor2';
-
-const SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
-const TANK_STATUS_UUID = '1dcef519-43ec-4267-8d4a-3b02ca61765d';
-const RED_UUID = '8a7f1168-48af-4ef4-9bae-a8d15f08cefe';
-const GREEN_UUID = '77b9c657-94d5-4f72-bfd4-53758dffa508';
-const BLUE_UUID = '0dcef519-43ec-4267-8d4a-3b02ca61765d';
-
-const manager = new BleManager();
+import { useBLE } from './hooks/useBLE';
 
 type Recipe = {
   id: number;
@@ -22,13 +13,18 @@ type Recipe = {
 };
 
 export default function App() {
-  const [isConnected, setIsConnected] = useState(false);
-  const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [noDevicesFound, setNoDevicesFound] = useState(false);
-  const [tank1Status, setTank1Status] = useState<number | null>(null);
-  const [tank2Status, setTank2Status] = useState<number | null>(null);
-  const [tank3Status, setTank3Status] = useState<number | null>(null);
+  const {
+    isConnected,
+    connectedDevice,
+    isScanning,
+    noDevicesFound,
+    tank1Status,
+    tank2Status,
+    tank3Status,
+    scanAndConnect,
+    sendData,
+  } = useBLE();
+
   const [showAddRecipe, setShowAddRecipe] = useState(false);
   const [recipes, setRecipes] = useState<Recipe[]>([
     { id: 1, name: 'Bleu Ciel', red: 135, green: 206, blue: 235 },
@@ -36,133 +32,6 @@ export default function App() {
   ]);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe>(recipes[0]);
   const [newRecipe, setNewRecipe] = useState({ name: '', red: '', green: '', blue: '' });
-
-  useEffect(() => {
-    return () => {
-      if (manager) {
-        manager.stopDeviceScan();
-        manager.destroy();
-      }
-    };
-  }, []);
-
-  async function scanAndConnect() {
-    if (isScanning) return;
-
-    console.log('Starting scan...');
-    setIsScanning(true);
-    setNoDevicesFound(false);
-    setIsConnected(false);
-    setConnectedDevice(null);
-
-    if (Platform.OS === 'android' && Platform.Version >= 23) {
-      const permission = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-      if (permission !== PermissionsAndroid.RESULTS.GRANTED) {
-        console.log('Permission BLE refusée');
-        setIsScanning(false);
-        return;
-      }
-    }
-
-    manager.startDeviceScan(null, null, (error, device) => {
-      if (error) {
-        console.log('Erreur de scan :', error);
-        setIsScanning(false);
-        return;
-      }
-
-      console.log('Scanning...');
-
-      if (device && device.name === 'ColorControl') {
-        console.log('Appareil trouvé :', device.name);
-        manager.stopDeviceScan();
-        setIsScanning(false);
-        device.connect()
-          .then((device) => {
-            console.log('Connecté à :', device.name);
-            setIsConnected(true);
-            setConnectedDevice(device);
-            return device.discoverAllServicesAndCharacteristics();
-          })
-          .then((device) => {
-            console.log('Services et caractéristiques découverts');
-            setupNotifications(device);
-          })
-          .catch(err => {
-            console.log('Erreur de connexion ou de découverte :', err);
-            setIsConnected(false);
-            setConnectedDevice(null);
-          });
-      }
-    });
-
-    setTimeout(() => {
-      if (!isConnected && !connectedDevice) {
-        manager.stopDeviceScan();
-        setIsScanning(false);
-        setNoDevicesFound(true);
-        console.log('Scan arrêté, aucun appareil connecté.');
-      }
-    }, 10000);
-  }
-
-  function setupNotifications(device: Device) {
-    monitorCharacteristic(device, SERVICE_UUID, TANK_STATUS_UUID, 'Tank Status', (value) => {
-      const tank1 = parseInt(value.substring(0, 2), 16);
-      const tank2 = parseInt(value.substring(2, 4), 16);
-      const tank3 = parseInt(value.substring(4, 6), 16);
-
-      console.log(`Tank 1 Status: ${tank1}, Tank 2 Status: ${tank2}, Tank 3 Status: ${tank3}`);
-
-      setTank1Status(tank1);
-      setTank2Status(tank2);
-      setTank3Status(tank3);
-    });
-  }
-
-  function monitorCharacteristic(
-    device: Device,
-    serviceUUID: string,
-    characteristicUUID: string,
-    characteristicName: string,
-    setState: (value: string) => void
-  ) {
-    console.log(`Monitoring characteristic ${characteristicName} (${characteristicUUID})...`);
-    device.monitorCharacteristicForService(serviceUUID, characteristicUUID, (error, characteristic) => {
-      if (error) {
-        console.log(`Erreur de lecture de ${characteristicName} :`, error);
-        return;
-      }
-      if (characteristic?.value) {
-        const decodedValue = base64.decode(characteristic.value);
-        console.log(`${characteristicName} Value (raw):`, characteristic.value);
-        console.log(`${characteristicName} Value (decoded):`, decodedValue);
-        setState(decodedValue);
-      } else {
-        console.log(`${characteristicName} Value is empty or invalid.`);
-      }
-    });
-  }
-
-  async function sendData() {
-    if (connectedDevice && isConnected) {
-      try {
-        const redData = base64.encode(String(selectedRecipe.red));
-        const greenData = base64.encode(String(selectedRecipe.green));
-        const blueData = base64.encode(String(selectedRecipe.blue));
-
-        await connectedDevice.writeCharacteristicWithResponseForService(SERVICE_UUID, RED_UUID, redData);
-        await connectedDevice.writeCharacteristicWithResponseForService(SERVICE_UUID, GREEN_UUID, greenData);
-        await connectedDevice.writeCharacteristicWithResponseForService(SERVICE_UUID, BLUE_UUID, blueData);
-
-        console.log(`Données envoyées pour ${selectedRecipe.name} : Rouge=${selectedRecipe.red}, Vert=${selectedRecipe.green}, Bleu=${selectedRecipe.blue}`);
-      } catch (error) {
-        console.log('Erreur d\'envoi des données :', error);
-      }
-    } else {
-      console.log('Aucun appareil connecté ou service non trouvé.');
-    }
-  }
 
   const addRecipe = () => {
     if (newRecipe.name && newRecipe.red && newRecipe.green && newRecipe.blue) {
@@ -183,13 +52,18 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={[styles.tankStatusContainer, !isConnected && styles.hidden]}>
-        <Text style={styles.tankStatusTitle}>Statut des réservoirs :</Text>
-        <Text style={[styles.tankStatus, tank1Status ? styles.alertStatus : null]}>Réservoir 1 : {tank1Status !== null ? (tank1Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
-        <Text style={[styles.tankStatus, tank2Status ? styles.alertStatus : null]}>Réservoir 2 : {tank2Status !== null ? (tank2Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
-        <Text style={[styles.tankStatus, tank3Status ? styles.alertStatus : null]}>Réservoir 3 : {tank3Status !== null ? (tank3Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
-      </View>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      {!showAddRecipe && (
+        <>
+          <Text style={styles.connectedDevice}>Connecté à : {connectedDevice?.name || 'Appareil inconnu'}</Text>
+          <View style={[styles.tankStatusContainer, !isConnected && styles.hidden]}>
+            <Text style={styles.tankStatusTitle}>Statut des réservoirs :</Text>
+            <Text style={[styles.tankStatus, tank1Status ? styles.alertStatus : null]}>Réservoir 1 : {tank1Status !== null ? (tank1Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
+            <Text style={[styles.tankStatus, tank2Status ? styles.alertStatus : null]}>Réservoir 2 : {tank2Status !== null ? (tank2Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
+            <Text style={[styles.tankStatus, tank3Status ? styles.alertStatus : null]}>Réservoir 3 : {tank3Status !== null ? (tank3Status ? 'Alerte' : 'OK') : 'Lecture...'}</Text>
+          </View>
+        </>
+      )}
       {!isConnected && (
         <View style={styles.centeredContainer}>
           <Image source={require('./assets/logo.png')} style={styles.logoLoading} />
@@ -199,9 +73,8 @@ export default function App() {
           {noDevicesFound && <Text style={styles.noDeviceText}>Aucun appareil trouvé. Veuillez réessayer.</Text>}
         </View>
       )}
-      {isConnected && (
+      {isConnected && !showAddRecipe && (
         <View style={styles.connectedContainer}>
-          <Text style={styles.connectedDevice}>Connecté à : {connectedDevice?.name || 'Appareil inconnu'}</Text>
           <Text style={styles.sectionTitle}>Recettes</Text>
           <FlatList
             data={recipes}
@@ -218,45 +91,52 @@ export default function App() {
           <TouchableOpacity onPress={() => setShowAddRecipe(true)} style={styles.addButton}>
             <Text style={styles.addButtonText}>Ajouter une recette</Text>
           </TouchableOpacity>
-          {showAddRecipe && (
-            <View style={styles.addRecipeContainer}>
-              <TextInput
-                placeholder="Nom de la recette"
-                value={newRecipe.name}
-                onChangeText={(text) => setNewRecipe({ ...newRecipe, name: text })}
-                style={styles.input}
-              />
-              <TextInput
-                placeholder="Rouge"
-                value={newRecipe.red}
-                onChangeText={(text) => setNewRecipe({ ...newRecipe, red: text })}
-                style={styles.input}
-                keyboardType="numeric"
-              />
-              <TextInput
-                placeholder="Vert"
-                value={newRecipe.green}
-                onChangeText={(text) => setNewRecipe({ ...newRecipe, green: text })}
-                style={styles.input}
-                keyboardType="numeric"
-              />
-              <TextInput
-                placeholder="Bleu"
-                value={newRecipe.blue}
-                onChangeText={(text) => setNewRecipe({ ...newRecipe, blue: text })}
-                style={styles.input}
-                keyboardType="numeric"
-              />
-              <View style={[styles.colorPreview, { backgroundColor: calculateColor(parseInt(newRecipe.red) || 0, parseInt(newRecipe.green) || 0, parseInt(newRecipe.blue) || 0) }]} />
-              <Button title="Ajouter la recette" onPress={addRecipe} />
-            </View>
-          )}
           <Text style={styles.sectionTitle}>Recette sélectionnée</Text>
           <Text style={styles.selectedRecipeText}>{selectedRecipe.name}</Text>
           <View style={[styles.colorPreview, { backgroundColor: calculateColor(selectedRecipe.red, selectedRecipe.green, selectedRecipe.blue) }]} />
-          <Button title="Envoyer les données" onPress={sendData} />
+          <Button title="Envoyer les données" onPress={() => sendData(selectedRecipe)} />
         </View>
       )}
-    </View>
+      {showAddRecipe && (
+        <View style={styles.addRecipeContainer}>
+          <TextInput
+            placeholder="Nom de la recette"
+            value={newRecipe.name}
+            onChangeText={(text) => setNewRecipe({ ...newRecipe, name: text })}
+            style={styles.input}
+          />
+          <TextInput
+            placeholder="Rouge"
+            value={newRecipe.red}
+            onChangeText={(text) => setNewRecipe({ ...newRecipe, red: text })}
+            style={styles.input}
+            keyboardType="numeric"
+          />
+          <TextInput
+            placeholder="Vert"
+            value={newRecipe.green}
+            onChangeText={(text) => setNewRecipe({ ...newRecipe, green: text })}
+            style={styles.input}
+            keyboardType="numeric"
+          />
+          <TextInput
+            placeholder="Bleu"
+            value={newRecipe.blue}
+            onChangeText={(text) => setNewRecipe({ ...newRecipe, blue: text })}
+            style={styles.input}
+            keyboardType="numeric"
+          />
+          <View style={[styles.colorPreview, { backgroundColor: calculateColor(parseInt(newRecipe.red) || 0, parseInt(newRecipe.green) || 0, parseInt(newRecipe.blue) || 0) }]} />
+          <View style={styles.buttonRow}>
+            <TouchableOpacity onPress={() => setShowAddRecipe(false)} style={styles.cancelButton}>
+              <Text style={styles.cancelButtonText}>Annuler</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={addRecipe} style={styles.addRecipeButton}>
+              <Text style={styles.addRecipeButtonText}>Ajouter la recette</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </KeyboardAvoidingView>
   );
 }
